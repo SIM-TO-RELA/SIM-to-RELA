@@ -19,7 +19,7 @@ from rsl_rl.runners import OnPolicyRunner
 
 import genesis as gs
 
-from grasp_env import GraspEnv
+from grasp_env import UR10Env
 from behavior_cloning import BehaviorCloning
 
 
@@ -111,11 +111,11 @@ def main():
     # for video recording
     env_cfg["visualize_camera"] = args.record
 
-    env = GraspEnv(
+    env = UR10Env(
         env_cfg=env_cfg,
         reward_cfg=reward_cfg,
         robot_cfg=robot_cfg,
-        show_viewer=True,
+        show_viewer=False,
     )
 
     # Load the appropriate policy based on model type

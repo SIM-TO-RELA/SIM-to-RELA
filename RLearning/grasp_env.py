@@ -380,15 +380,15 @@ class Manipulator:
         # Sometimes high-quality URDF or XML file would also provide this and will be parsed.
         self._robot_entity.set_dofs_kp(
             # torch.tensor([4500, 4500, 3500, 3500, 2000, 2000, 2000, 100, 100]),
-            torch.tensor([2000 , 2000, 2000 , 500 , 500 , 500]),
+            torch.tensor([2000 , 2000, 2000 , 500 , 500 , 500, 30 ,30, 30,30,30,30,30,30]),
         )
         self._robot_entity.set_dofs_kv(
-            # torch.tensor([450, 450, 350, 350, 200, 200, 200, 10, 10]),
-            torch.tensor([200 , 200 , 200 , 50 ,50 ,50]),
+            # torch.tensor([4530, 4530, 3530, 350, 200, 200, 200, 10, 10]),
+            torch.tensor([200 , 200 , 200 , 50 ,50 ,50, 2, 2, 2, 2, 2, 2, 2, 2]),
         )
         self._robot_entity.set_dofs_force_range(
-            torch.tensor([-150 , -150, -150, -28, -28, -28 , -5, -5 ]),
-            torch.tensor([150 , 150, 150,  28 , 28 ,28 , 5, 5 ]),
+            torch.tensor([-150 , -150, -150, -28, -28, -28 , -5, -5 , -5 ,-5 ,-5 ,-5, -5, -5]),
+            torch.tensor([150 , 150, 150,  28 , 28 ,28 , 5, 5, 5, 5, 5, 5, 5, 5]),
         )
 
     def _init(self):
