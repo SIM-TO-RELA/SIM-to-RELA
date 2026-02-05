@@ -115,7 +115,7 @@ def main():
         env_cfg=env_cfg,
         reward_cfg=reward_cfg,
         robot_cfg=robot_cfg,
-        show_viewer=False,
+        show_viewer=True,
     )
 
     # Load the appropriate policy based on model type
