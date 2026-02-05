@@ -44,7 +44,7 @@ class UR10Env:
                 enable_collision=True,
                 enable_joint_limit=True,
             ),
-            vis_options=gs.options.VisOptions(rendered_envs_idx=list(range(10))),
+            vis_options=gs.options.VisOptions(rendered_envs_idx=list(range(self.num_envs))),
             viewer_options=gs.options.ViewerOptions(
                 max_FPS=int(0.5 / self.ctrl_dt),
                 camera_pos=(2.0, 0.0, 2.5),
@@ -52,9 +52,9 @@ class UR10Env:
                 camera_fov=40,
             ),
             profiling_options=gs.options.ProfilingOptions(show_FPS=False),
-            renderer=gs.options.renderers.BatchRenderer(
-                use_rasterizer=env_cfg["use_rasterizer"],
-            ),
+            # renderer=gs.options.renderers.BatchRenderer(
+            #     use_rasterizer=env_cfg["use_rasterizer"],
+            # ),
             show_viewer=show_viewer,
         )
 
@@ -111,7 +111,7 @@ class UR10Env:
         )
 
         # build
-        self.scene.build(n_envs=env_cfg["num_envs"])
+        self.scene.build(n_envs=1)
         # set pd gains (must be called after scene.build)
         self.robot.set_pd_gains()
 

@@ -28,7 +28,7 @@ def load_rl_policy(env, train_cfg, log_dir):
     runner = OnPolicyRunner(env, train_cfg, log_dir, device=gs.device)
 
     # Find the latest checkpoint
-    checkpoint_files = [f for f in log_dir.iterdir() if re.match(r"model_\d+\.pt", f.name)]
+    checkpoint_files = [f for f in log_dir.iterdir() if re.match(r"model_\d+\_cpu.pt", f.name)]
     if not checkpoint_files:
         raise FileNotFoundError(f"No checkpoint files found in {log_dir}")
 
@@ -88,7 +88,7 @@ def main():
     # Set PyTorch default dtype to float32 for better performance
     torch.set_default_dtype(torch.float32)
 
-    gs.init()
+    gs.init(backend=gs.cpu)
 
     log_dir = Path("logs") / f"{args.exp_name + '_' + args.stage}"
 
@@ -107,7 +107,7 @@ def main():
     # set the box fixed
     env_cfg["box_fixed"] = False
     # set the number of envs for evaluation
-    env_cfg["num_envs"] = 10
+    env_cfg["num_envs"] = 1
     # for video recording
     env_cfg["visualize_camera"] = args.record
 

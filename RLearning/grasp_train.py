@@ -122,7 +122,7 @@ def get_train_cfg(exp_name, max_iterations):
 
 def get_task_cfgs():
     env_cfg = {
-        "num_envs": 10,
+        "num_envs": 1,
         "num_obs": 14,
         "num_actions": 6,
         "action_scales": [0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
@@ -176,7 +176,7 @@ def main():
     args = parser.parse_args()
 
     # === init ===
-    gs.init(backend=gs.cuda, precision="32", logging_level="warning", performance_mode=True)
+    gs.init(backend=gs.cpu, precision="32", logging_level="warning", performance_mode=True)
 
     # === task cfgs and trainning algos cfgs ===
     env_cfg, reward_scales, robot_cfg = get_task_cfgs()
