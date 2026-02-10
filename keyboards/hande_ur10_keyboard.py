@@ -73,7 +73,7 @@ def build_scene():
     entities["robot"] = scene.add_entity(
         material=gs.materials.Rigid(gravity_compensation=1),
         morph=gs.morphs.MJCF(
-            file="ur10e_hand.xml",
+            file="../xml/ur10e_hand.xml",
             euler=(0, 0, 0),
         ),
     )
