@@ -35,8 +35,8 @@ plane = scene.add_entity(
     gs.morphs.Plane(),
 )
 
-bottle2 = scene.add_entity(
-    gs.morphs.MJCF(file='ur10e_hand.xml',pos=(0.0, 0.0, 0.0), visualization = True),
+robot = scene.add_entity(
+    gs.morphs.MJCF(file='ur10e_roboti.xml',pos=(0.0, 0.0, 0.0), visualization = True),
 )
 
 
