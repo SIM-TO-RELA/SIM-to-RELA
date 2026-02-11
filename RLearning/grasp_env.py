@@ -357,7 +357,7 @@ class Manipulator:
         # == Genesis configurations ==
         material: gs.materials.Rigid = gs.materials.Rigid()
         morph: gs.morphs.URDF = gs.morphs.MJCF(
-            file="../ur10e_roboti.xml",
+            file="../xml/ur10e_hand.xml",
             pos=(0.0, 0.0, 0.0),
             quat=(1.0, 0.0, 0.0, 0.0),
         )
@@ -398,7 +398,7 @@ class Manipulator:
         self._arm_dof_idx = torch.arange(self._arm_dof_dim, device=self._device)
         self._fingers_dof = torch.arange(
             self._arm_dof_dim,
-            self._arm_dof_dim + (self._gripper_dim + 1),
+            self._arm_dof_dim + self._gripper_dim,
             device=self._device,
         )
         self._left_finger_dof = self._fingers_dof[0]

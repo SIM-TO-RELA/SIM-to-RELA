@@ -6,8 +6,8 @@ import genesis as gs
 import numpy as np
 from pynput import keyboard
 from scipy.spatial.transform import Rotation as R
-
-
+from ultralytics import YOLO
+import cv2
 
 class KeyboardDevice:
     def __init__(self):
@@ -73,7 +73,7 @@ def build_scene():
     entities["robot"] = scene.add_entity(
         material=gs.materials.Rigid(gravity_compensation=1),
         morph=gs.morphs.MJCF(
-            file="xml/ur10e_hand.xml",
+            file="/home/apande/Genesis/Sim-to-Rela-Org/xml/ur10e_hand.xml",
             euler=(0, 0, 0),
         ),
     )
@@ -96,21 +96,25 @@ def build_scene():
         ),
         surface=gs.surfaces.Default(color=(1, 0.5, 0.5, 1)),
     )
-
-
-    follower_camera = scene.add_camera(res=(640,480),
-                                        pos=(0.0, 2.0, 0.5),
-                                        lookat=(0.0, 0.0, 0.5),
-                                        fov=40,
-                                        GUI=True)
- 
-    follower_camera.follow_entity(entities["cube"], fixed_axis=(None, None, 0.5), smoothing=0.5, fix_orientation=True)
+    
     ########################## build ##########################
+
+    cam = scene.add_camera(GUI=True, fov=70)
+    cam2 = scene.add_camera(GUI=True, fov=70)
+    cam3= scene.add_camera(
+            pos=(1.00, 0.0, 1),
+            lookat=(0.0, 0.0, 0.0),
+            fov=60,
+            GUI=True,
+        )
     scene.build()
+    add_camera(scene, cam,cam2, cam3, entities)
 
-    return scene, entities
+    
 
-def run_sim(scene, entities, clients):
+    return scene, entities, cam, cam2 , cam3
+
+def run_sim(scene, entities, clients, cam,cam2,cam3):
     robot = entities["robot"]
     target_entity = entities["target"]
 
@@ -127,6 +131,7 @@ def run_sim(scene, entities, clients):
     ee_link = robot.get_link("wrist_3_link")
  
 
+ 
     def reset_scene():
         nonlocal target_pos, target_R
         target_pos = robot_init_pos.copy()
@@ -173,10 +178,11 @@ def run_sim(scene, entities, clients):
 
         # stop teleoperation
         stop = keyboard.Key.esc in pressed_keys
+        
 
         # get ee target pose
         is_close_gripper = False
-        dpos = 0.002
+        dpos = 0.008
         drot = 0.01
         
     
@@ -216,7 +222,7 @@ def run_sim(scene, entities, clients):
         robot.control_dofs_position(q[:-2], motors_dof)
         # robot.set_qpos(q)
 
-        s = 100000000000000
+        s = 10
         # control gripper
         if is_close_gripper:
             robot.control_dofs_position(np.array([s, s]), fingers_dof)
@@ -224,19 +230,123 @@ def run_sim(scene, entities, clients):
             robot.control_dofs_position(np.array([-s, -s]), fingers_dof)
 
         scene.step()
+        cam.render(rgb = True)
+
+        cam2.render()
+        cam3.render()
 
         if "PYTEST_VERSION" in os.environ:
             break
 
+
+
+def add_camera(scene, cam, cam2, cam3, entities):
+    T = np.eye(4)
+    T[:3, :3] = np.array([
+        [1,  0,  0],
+        [0, -1,  0],
+        [0,  0, -1]
+    ])
+
+    Z = np.eye(4)
+    Z[:3, :3] = np.array([
+        [1,  0,  0],
+        [0, 0,  -1],
+        [0,  1, 0]
+    ])
+
+    T[:3, 3] = np.array([0.0, 0.0, 0.0])
+
+    Z[:3, 3] = np.array([0.1, 0.0, 0.1])
+
+    cam.attach(entities["robot"].get_link("wrist_3_link"), Z)
+    cam2.attach(entities["cube"],T)
+    # cam2=scene.add_camera(
+    #         pos=(1.25, 0.3, 0.3),
+    #         lookat=(0.0, 0.0, 0.0),
+    #         fov=60,
+    #         GUI=True,
+    #     )
+
+    cam3 = cam3
+
+    return cam, cam2, cam3
+
+
+def yolo(cam1):
+    # model = YOLO(model_path, task='detect')
+    model =YOLO("yolo11n_ncnn_model", task = 'detect')
+    labels = model.names
+
+    bbox_colors = [(164,120,87), (68,148,228), (93,97,209), (178,182,133), (88,159,106), 
+              (96,202,231), (159,124,168), (169,162,241), (98,118,150), (172,176,184)]
+
+    cap = cam1
+    # cap.configure(cap.create_video_configuration(main={"format": 'XRGB8888', "size": (1280, 720)}))
+    # cap.start()
+    frame_bgra = cap.render(rgb=True)
+    frame = cv2.cvtColor(np.copy(frame_bgra), cv2.COLOR_BGRA2BGR)
+    results = model(frame, verbose=False)
+    cv2.waitKey(1)
+
+
+    # Extract results
+    detections = results[0].boxes
+
+
+    # Initialize variable for basic object counting example
+    object_count = 0
+
+    target=[]
+    spawned = []
+
+    for i in range(len(detections)):
+    # for i in range(15):
+        # print(i)
+        # Get bounding box coordinates
+        # Ultralytics returns results in Tensor format, which have to be converted to a regular Python array
+        xyxy_tensor = detections[i].xyxy.cpu() # Detections in Tensor format in CPU memory
+        xyxy = xyxy_tensor.numpy().squeeze() # Convert tensors to Numpy array
+        xmin, ymin, xmax, ymax = xyxy.astype(int) # Extract individual coordinates and convert to int
+
+        # Get bounding box class ID and name
+        classidx = int(detections[i].cls.item())
+        classname = labels[classidx]
+
+        conf = detections[i].conf.item()
+
+        # Draw box if confidence threshold is high enough
+        if conf > 0.5:
+
+            color = bbox_colors[classidx % 10]
+            cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), color, 2)
+
+            label = f'{classname}: {int(conf*100)}%'
+            labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1) # Get font size
+            label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
+            cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), color, cv2.FILLED) # Draw white box to put label text in
+            cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1) # Draw label text
+
+            # Basic example: count the number of objects in the image
+            object_count = object_count + 1
 
 def main():
     clients = dict()
     clients["keyboard"] = KeyboardDevice()
     clients["keyboard"].start()
 
-    scene, entities = build_scene()
-    run_sim(scene, entities, clients)
 
+    
+    
+    
+    scene, entities, cam, cam2, cam3= build_scene()
+    camera, camera2, camera3=add_camera(scene, cam, cam2, cam3, entities)
 
+    run_sim(scene, entities, clients, camera, camera2,camera3)
+
+    
+    
+
+    
 if __name__ == "__main__":
     main()

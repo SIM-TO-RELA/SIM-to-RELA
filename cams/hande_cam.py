@@ -260,6 +260,8 @@ def add_camera(scene, cam, cam2, cam3, entities):
 
     cam.attach(entities["robot"].get_link("wrist_3_link"), Z)
     cam2.attach(entities["cube"],T)
+
+    # cam.follow_entity(entities["cube"])
     # cam2=scene.add_camera(
     #         pos=(1.25, 0.3, 0.3),
     #         lookat=(0.0, 0.0, 0.0),
