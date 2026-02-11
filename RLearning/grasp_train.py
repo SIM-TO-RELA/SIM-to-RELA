@@ -141,7 +141,7 @@ def get_task_cfgs():
     # panda robot specific
     robot_cfg = {
         "ee_link_name": "wrist_3_link",
-        "gripper_link_names": ["left_spring_link", "right_spring_link"],
+        "gripper_link_names": ["hande_left_finger_joint", "hande_right_finger_joint"],
         "default_arm_dof": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
         "default_gripper_dof": [0.04]*7,
         "ik_method": "dls_ik",
