@@ -150,41 +150,41 @@
     <material name="dark_gray" rgba="0.1 0.1 0.1 1" />
 
 
-    <mesh file="xml/assets/base_0.obj"/>
-    <mesh file="xml/assets/base_1.obj"/>
-    <mesh file="xml/assets/shoulder_0.obj"/>
-    <mesh file="xml/assets/shoulder_1.obj"/>
-    <mesh file="xml/assets/shoulder_2.obj"/>
-    <mesh file="xml/assets/upperarm_0.obj"/>
-    <mesh file="xml/assets/upperarm_1.obj"/>
-    <mesh file="xml/assets/upperarm_2.obj"/>
-    <mesh file="xml/assets/upperarm_3.obj"/>
-    <mesh file="xml/assets/forearm_0.obj"/>
-    <mesh file="xml/assets/forearm_1.obj"/>
-    <mesh file="xml/assets/forearm_2.obj"/>
-    <mesh file="xml/assets/forearm_3.obj"/>
-    <mesh file="xml/assets/wrist1_0.obj"/>
-    <mesh file="xml/assets/wrist1_1.obj"/>
-    <mesh file="xml/assets/wrist1_2.obj"/>
-    <mesh file="xml/assets/wrist2_0.obj"/>
-    <mesh file="xml/assets/wrist2_1.obj"/>
-    <mesh file="xml/assets/wrist2_2.obj"/>
-    <mesh file="xml/assets/wrist3.obj"/>
+    <mesh file="assets/base_0.obj"/>
+    <mesh file="assets/base_1.obj"/>
+    <mesh file="assets/shoulder_0.obj"/>
+    <mesh file="assets/shoulder_1.obj"/>
+    <mesh file="assets/shoulder_2.obj"/>
+    <mesh file="assets/upperarm_0.obj"/>
+    <mesh file="assets/upperarm_1.obj"/>
+    <mesh file="assets/upperarm_2.obj"/>
+    <mesh file="assets/upperarm_3.obj"/>
+    <mesh file="assets/forearm_0.obj"/>
+    <mesh file="assets/forearm_1.obj"/>
+    <mesh file="assets/forearm_2.obj"/>
+    <mesh file="assets/forearm_3.obj"/>
+    <mesh file="assets/wrist1_0.obj"/>
+    <mesh file="assets/wrist1_1.obj"/>
+    <mesh file="assets/wrist1_2.obj"/>
+    <mesh file="assets/wrist2_0.obj"/>
+    <mesh file="assets/wrist2_1.obj"/>
+    <mesh file="assets/wrist2_2.obj"/>
+    <mesh file="assets/wrist3.obj"/>
 
-    <mesh class="2f85" file="xml/assets/base_mount.stl"/>
-    <mesh class="2f85" file="xml/assets/base.stl"/>
-    <mesh class="2f85" file="xml/assets/driver.stl"/>
-    <!-- <mesh class="2f85" file="xml/assets/coupler.stl"/> -->
-    <mesh class="2f85" file="xml/assets/follower.stl"/>
-    <mesh class="2f85" file="xml/assets/pad.stl"/>
-    <mesh class="2f85" file="xml/assets/silicone_pad.stl"/>
-    <mesh class="2f85" file="xml/assets/spring_link.stl"/>
+    <mesh class="2f85" file="assets/base_mount.stl"/>
+    <mesh class="2f85" file="assets/base.stl"/>
+    <mesh class="2f85" file="assets/driver.stl"/>
+    <!-- <mesh class="2f85" file="assets/coupler.stl"/> -->
+    <mesh class="2f85" file="assets/follower.stl"/>
+    <mesh class="2f85" file="assets/pad.stl"/>
+    <mesh class="2f85" file="assets/silicone_pad.stl"/>
+    <mesh class="2f85" file="assets/spring_link.stl"/>
 
 
-    <mesh name="hande" file="xml/assets/hande.stl" />
-    <mesh name="coupler" file="xml/assets/coupler.stl" />
-    <mesh name="right_finger" file="xml/assets/finger_1.stl" />
-    <mesh name="left_finger" file="xml/assets/finger_2.stl" />
+    <mesh name="hande" file="assets/hande.stl" />
+    <mesh name="coupler" file="assets/coupler.stl" />
+    <mesh name="right_finger" file="assets/finger_1.stl" />
+    <mesh name="left_finger" file="assets/finger_2.stl" />
     
   </asset>
 
