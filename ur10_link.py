@@ -33,7 +33,7 @@ class Teleop(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.base_frame = "base_link"
-        self.ee_frame = "tool0"   
+        self.ee_frame = "wrist_3_link"   
 
 
         self.joints = None
@@ -98,22 +98,18 @@ class Teleop(Node):
             self.joints[5] += STEP
         elif k == '=':
             self.joints[5] -= STEP
+            
+        elif k == 'p':
+            pos, quat = self.get_link_pose(self.ee_frame, self.base_frame)
+            print(f"{self.ee_frame} w.r.t {self.base_frame}")
+            print("pos:", pos)
+            #print("quat:", quat)  
         else:
             return
 
         self.send()
 
-        try:
-            if key.char == 'p':
-                pos, quat = self.get_link_pose(self.ee_frame, self.base_frame)
-                if pos:
-                    print(f"{self.ee_frame} w.r.t {self.base_frame}")
-                    print("pos:", pos)
-                    print("quat:", quat)
-                return
-        except:
-            pass
-
+      
 
     def get_link_pose(self, target_frame: str, source_frame: str):
         """
@@ -126,7 +122,7 @@ class Teleop(Node):
                 Time()          # latest available
             )
             t = tf_msg.transform.translation
-            q = tf_msg.transform.rotation
+            q = tf_msg.transform.rotation5
             return (t.x, t.y, t.z), (q.x, q.y, q.z, q.w)
         except Exception as e:
             self.get_logger().warn(f"TF lookup failed: {e}")
