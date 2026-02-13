@@ -48,10 +48,7 @@ class KeyboardDevice:
 
 def build_scene():
 
-    rclpy.init()
-    node = Teleop()
-    joints = node.js_cb
-    rclpy.spin(node)
+    
     ########################## init ##########################
     gs.init(precision="32", logging_level="info", backend=gs.cpu)
     np.set_printoptions(precision=7, suppress=True)
@@ -121,6 +118,11 @@ def build_scene():
     ########################## build ##########################
     scene.build()
 
+    # rclpy.init()
+    # node = Teleop()
+    # joints = node.js_cb
+    # rclpy.spin(node)
+
     return scene, entities , joints
 
 def run_sim(scene, entities, clients, joint_angles):
@@ -134,7 +136,7 @@ def run_sim(scene, entities, clients, joint_angles):
 
     n_dofs = robot.n_dofs
     motors_dof = np.arange(n_dofs-2)
-    print(motors_dof)
+    # print(motors_dof)
     fingers_dof = np.array([6,7])
 
     ee_link = robot.get_link("wrist_3_link")
@@ -174,8 +176,15 @@ def run_sim(scene, entities, clients, joint_angles):
 
     # start teleoperation
     
+    rclpy.init()
+    node = Teleop()
+    
+
     stop = False
-    while not stop:
+
+    while rclpy.init() and not stop:
+
+        rclpy.spin_once(node, timeout_sec=0.0)
         pressed_keys = clients["keyboard"].pressed_keys.copy()
 
         # reset scene:
@@ -227,11 +236,13 @@ def run_sim(scene, entities, clients, joint_angles):
         q= robot.inverse_kinematics(link=ee_link, pos=target_pos, quat=target_quat)
         angles = q[:6]
 
-        for i in range(6):
-            joint_angles[i] = angles[i]
+        # for i in range(6):
+        #     joint_angles[i] = angles[i]
+        node.joints = angles.tolist()
+        node.send()
 
-        send = Teleop()
-        send.send()
+        # send = Teleop()
+        # send.send()
 
         robot.control_dofs_position(q[:-2], motors_dof)
         # robot.set_qpos(q)
@@ -247,6 +258,9 @@ def run_sim(scene, entities, clients, joint_angles):
 
         if "PYTEST_VERSION" in os.environ:
             break
+
+    node.destroy_node()
+    rclpy.shutdown()
 
 JOINT_NAMES = [
 "shoulder_pan_joint",
@@ -270,28 +284,28 @@ class Teleop(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.base_frame = "base_link"
-        self.ee_frame = "wrist_3_link"   
+        # self.base_frame = "base_link"
+        # self.ee_frame = "wrist_3_link"   
 
 
         self.joints = None
         self.create_subscription(JointState, '/joint_states', self.js_cb, 10)
 
-        self.listener = keyboard.Listener(on_press=self.on_press)
-        self.listener.start()
+        # self.listener = keyboard.Listener(on_press=self.on_press)
+        # self.listener.start()
 
-        print("\nControls:")
-        print("1/2 → joint1")
-        print("3/4 → joint2")
-        print("5/6 → joint3")
-        print("7/8 → joint4")
-        print("9/0 → joint5")
-        print("-/= → joint6\n")
+        # print("\nControls:")
+        # print("1/2 → joint1")
+        # print("3/4 → joint2")
+        # print("5/6 → joint3")
+        # print("7/8 → joint4")
+        # print("9/0 → joint5")
+        # print("-/= → joint6\n")
 
     def js_cb(self, msg):
         name_to_pos = dict(zip(msg.name, msg.position))
         self.joints = [name_to_pos[j] for j in JOINT_NAMES]
-        return self.joints
+        # return self.joints
 
     def send(self):
         traj = JointTrajectory()

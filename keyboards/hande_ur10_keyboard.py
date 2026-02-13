@@ -212,7 +212,8 @@ def run_sim(scene, entities, clients):
         target_quat = target_R.as_quat(scalar_first=True)
         target_entity.set_qpos(np.concatenate([target_pos, target_quat]))
         q= robot.inverse_kinematics(link=ee_link, pos=target_pos, quat=target_quat)
-        
+        new_list = q[:6]
+        print(new_list)
         robot.control_dofs_position(q[:-2], motors_dof)
         # robot.set_qpos(q)
 
