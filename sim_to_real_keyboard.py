@@ -14,9 +14,8 @@ from pynput import keyboard
 import math
 from tf2_ros import Buffer, TransformListener
 from rclpy.time import Time
-import socket
-import time
 
+from test_gripper import RobotiqHandE_URCapSocket
 
 class KeyboardDevice:
     def __init__(self):
@@ -124,13 +123,13 @@ def build_scene():
     # joints = node.js_cb
     # rclpy.spin(node)
 
-    return scene, entities , joints
+    return scene, entities 
 
-def run_sim(scene, entities, clients, joint_angles):
+def run_sim(scene, entities, clients):
     robot = entities["robot"]
     target_entity = entities["target"]
 
-    robot_init_pos = np.array([0.5, 0, 0.55])
+    robot_init_pos = np.array([-0.4, 0, 1.25])
     robot_init_R = R.from_euler("x", (55*np.pi)/36)
     target_pos = robot_init_pos.copy()
     target_R = robot_init_R
@@ -183,7 +182,7 @@ def run_sim(scene, entities, clients, joint_angles):
 
     stop = False
 
-    while rclpy.init() and not stop:
+    while not stop:
 
         rclpy.spin_once(node, timeout_sec=0.0)
         pressed_keys = clients["keyboard"].pressed_keys.copy()
@@ -202,7 +201,10 @@ def run_sim(scene, entities, clients, joint_angles):
         dpos = 0.002
         drot = 0.01
         
-    
+        ROBOT_IP = "192.168.56.101"  # <-- change this
+        g = RobotiqHandE_URCapSocket(ROBOT_IP)
+
+        g.connect()
         
         for key in pressed_keys:
             if key == keyboard.Key.up:
@@ -242,8 +244,9 @@ def run_sim(scene, entities, clients, joint_angles):
         node.joints = angles.tolist()
         node.send()
 
-        # send = Teleop()
-        # send.send()
+        
+        
+        
 
         robot.control_dofs_position(q[:-2], motors_dof)
         # robot.set_qpos(q)
@@ -252,8 +255,10 @@ def run_sim(scene, entities, clients, joint_angles):
         # control gripper
         if is_close_gripper:
             robot.control_dofs_position(np.array([s, s]), fingers_dof)
+            g.close_grip()
         else:
             robot.control_dofs_position(np.array([-s, -s]), fingers_dof)
+            g.open()
 
         scene.step()
 
@@ -332,8 +337,8 @@ def main():
     clients["keyboard"] = KeyboardDevice()
     clients["keyboard"].start()
 
-    scene, entities, joints= build_scene()
-    run_sim(scene, entities, clients, joints)
+    scene, entities= build_scene()
+    run_sim(scene, entities, clients)
 
 
 if __name__ == "__main__":
