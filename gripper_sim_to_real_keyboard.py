@@ -124,9 +124,9 @@ def build_scene():
     # joints = node.js_cb
     # rclpy.spin(node)
 
-    return scene, entities , joints
+    return scene, entities
 
-def run_sim(scene, entities, clients, joint_angles):
+def run_sim(scene, entities, clients, real_gripper):
     robot = entities["robot"]
     target_entity = entities["target"]
 
@@ -183,7 +183,7 @@ def run_sim(scene, entities, clients, joint_angles):
 
     stop = False
 
-    while rclpy.init() and not stop:
+    while stop:
 
         rclpy.spin_once(node, timeout_sec=0.0)
         pressed_keys = clients["keyboard"].pressed_keys.copy()
@@ -199,6 +199,7 @@ def run_sim(scene, entities, clients, joint_angles):
 
         # get ee target pose
         is_close_gripper = False
+        is_close_actual_gripper=False
         dpos = 0.002
         drot = 0.01
         
@@ -223,6 +224,8 @@ def run_sim(scene, entities, clients, joint_angles):
                 target_R = R.from_euler("z", -drot) * target_R
             elif key == keyboard.Key.space:
                 is_close_gripper = True
+            elif key == keyboard.KeyCode.from_char("x"):
+                is_close_actual_gripper = True
 
         # control arm
         arm_names = [
@@ -252,8 +255,16 @@ def run_sim(scene, entities, clients, joint_angles):
         # control gripper
         if is_close_gripper:
             robot.control_dofs_position(np.array([s, s]), fingers_dof)
+            real_gripper.close()
         else:
+            real_gripper.close()
             robot.control_dofs_position(np.array([-s, -s]), fingers_dof)
+
+        if is_close_actual_gripper:
+            real_gripper.close()
+        else:
+            real_gripper.open()
+
 
         scene.step()
 
@@ -320,6 +331,51 @@ class Teleop(Node):
         self.pub.publish(traj)
 
 
+import socket
+import time
+
+class UR10Gripper:
+    def __init__(self, ip="192.168.0.12", port=30002):
+        self.ip = ip
+        self.port = port
+        self.last_state = None  # prevents spam
+
+    def _send(self, cmd):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((self.ip, self.port))
+        s.send((cmd + "\n").encode())
+        s.close()
+
+    def activate(self):
+        self._send(
+            "def prog():\n"
+            "  rq_activate()\n"
+            "end\n"
+            "prog()"
+        )
+        time.sleep(1)
+
+    def open(self):
+        if self.last_state == "open":
+            return
+        self._send(
+            "def prog():\n"
+            "  rq_open()\n"
+            "end\n"
+            "prog()"
+        )
+        self.last_state = "open"
+
+    def close(self):
+        if self.last_state == "close":
+            return
+        self._send(
+            "def prog():\n"
+            "  rq_close()\n"
+            "end\n"
+            "prog()"
+        )
+        self.last_state = "close"
 
 
 
@@ -332,8 +388,13 @@ def main():
     clients["keyboard"] = KeyboardDevice()
     clients["keyboard"].start()
 
+
     scene, entities, joints= build_scene()
-    run_sim(scene, entities, clients, joints)
+
+    real_gripper = UR10Gripper(ip="192.168.x.x")  # <-- your UR10 IP
+    real_gripper.activate()
+
+    run_sim(scene, entities, clients, real_gripper)
 
 
 if __name__ == "__main__":

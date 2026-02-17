@@ -114,11 +114,11 @@ def run_sim(scene, entities, clients):
     robot = entities["robot"]
     target_entity = entities["target"]
 
-    robot_init_pos = np.array([0.5, 0, 0.55])
+    robot_init_pos = np.array([-0.4, 0, 1.25])
     robot_init_R = R.from_euler("x", (55*np.pi)/36)
     target_pos = robot_init_pos.copy()
     target_R = robot_init_R
-
+    # robot.set_dofs_position([0,-1.57,3.75,0,0,0,0,0])
     n_dofs = robot.n_dofs
     motors_dof = np.arange(n_dofs-2)
     print(motors_dof)
@@ -213,7 +213,7 @@ def run_sim(scene, entities, clients):
         target_entity.set_qpos(np.concatenate([target_pos, target_quat]))
         q= robot.inverse_kinematics(link=ee_link, pos=target_pos, quat=target_quat)
         new_list = q[:6]
-        print(new_list)
+        # print(robot.get_pos)
         robot.control_dofs_position(q[:-2], motors_dof)
         # robot.set_qpos(q)
 
