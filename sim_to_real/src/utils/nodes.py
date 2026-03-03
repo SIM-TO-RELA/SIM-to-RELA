@@ -6,8 +6,16 @@ import genesis as gs
 import numpy as np
 from pynput import keyboard
 from scipy.spatial.transform import Rotation as R
+import rclpy
+from rclpy.node import Node
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from sensor_msgs.msg import JointState
+from pynput import keyboard
+import math
+from tf2_ros import Buffer, TransformListener
+from rclpy.time import Time
 
-
+from test_gripper import RobotiqHandE_URCapSocket
 
 class KeyboardDevice:
     def __init__(self):
@@ -39,6 +47,8 @@ class KeyboardDevice:
     
 
 def build_scene():
+
+    
     ########################## init ##########################
     gs.init(precision="32", logging_level="info", backend=gs.cpu)
     np.set_printoptions(precision=7, suppress=True)
@@ -108,21 +118,25 @@ def build_scene():
     ########################## build ##########################
     scene.build()
 
-    return scene, entities
+    # rclpy.init()
+    # node = Teleop()
+    # joints = node.js_cb
+    # rclpy.spin(node)
+
+    return scene, entities 
 
 def run_sim(scene, entities, clients):
     robot = entities["robot"]
-    cube = entities["cube"]
     target_entity = entities["target"]
 
-    robot_init_pos = np.array([0.4, 0, 1.25])
+    robot_init_pos = np.array([-0.4, 0, 1.25])
     robot_init_R = R.from_euler("x", (55*np.pi)/36)
     target_pos = robot_init_pos.copy()
     target_R = robot_init_R
-    # robot.set_dofs_position([0,-1.57,3.75,0,0,0,0,0])
+
     n_dofs = robot.n_dofs
     motors_dof = np.arange(n_dofs-2)
-    print(motors_dof)
+    # print(motors_dof)
     fingers_dof = np.array([6,7])
 
     ee_link = robot.get_link("wrist_3_link")
@@ -162,8 +176,15 @@ def run_sim(scene, entities, clients):
 
     # start teleoperation
     
+    rclpy.init()
+    node = Teleop()
+    
+
     stop = False
+
     while not stop:
+
+        rclpy.spin_once(node, timeout_sec=0.0)
         pressed_keys = clients["keyboard"].pressed_keys.copy()
 
         # reset scene:
@@ -180,7 +201,10 @@ def run_sim(scene, entities, clients):
         dpos = 0.002
         drot = 0.01
         
-    
+        ROBOT_IP = "192.168.56.101"  # <-- change this
+        g = RobotiqHandE_URCapSocket(ROBOT_IP)
+
+        g.connect()
         
         for key in pressed_keys:
             if key == keyboard.Key.up:
@@ -201,15 +225,6 @@ def run_sim(scene, entities, clients):
                 target_R = R.from_euler("z", -drot) * target_R
             elif key == keyboard.Key.space:
                 is_close_gripper = True
-            elif key == keyboard.KeyCode.from_char("l"):
-                print("====================================")
-                print("kv: " , robot.get_dofs_kv())
-                print("kp: ", robot.get_dofs_kp())
-                print("force_range: ", robot.get_dofs_force_range())
-                print("position: ", robot.get_dofs_position())
-                print("cube_pos:" , cube.get_pos)
-                print("====================================")
-
 
         # control arm
         arm_names = [
@@ -222,33 +237,107 @@ def run_sim(scene, entities, clients):
         target_quat = target_R.as_quat(scalar_first=True)
         target_entity.set_qpos(np.concatenate([target_pos, target_quat]))
         q= robot.inverse_kinematics(link=ee_link, pos=target_pos, quat=target_quat)
-        new_list = q[:6]
-        # print(robot.get_pos)
+        angles = q[:6]
+
+        # for i in range(6):
+        #     joint_angles[i] = angles[i]
+        node.joints = angles.tolist()
+        node.send()
+
+        
+        
+        
+
         robot.control_dofs_position(q[:-2], motors_dof)
         # robot.set_qpos(q)
-        robot.set_dofs_kp([2000, 2000, 2000, 500, 500, 500, 1000 ,1000])
-        robot.set_dofs_kv([200 , 200 , 200, 50, 50 ,50 ,100 ,100])
-        robot.set_dofs_force_range([-150 , -150 , -150 , -28 , -28 , -28 ,-150 ,-150 ] , [150 , 150 , 150 , 28 , 28 , 28 ,150 ,150])
 
         s = 100000000000000
         # control gripper
         if is_close_gripper:
             robot.control_dofs_position(np.array([s, s]), fingers_dof)
+            g.close_grip()
         else:
             robot.control_dofs_position(np.array([-s, -s]), fingers_dof)
+            g.open()
 
         scene.step()
 
         if "PYTEST_VERSION" in os.environ:
             break
 
+    node.destroy_node()
+    rclpy.shutdown()
+
+JOINT_NAMES = [
+"shoulder_pan_joint",
+"shoulder_lift_joint",
+"elbow_joint",
+"wrist_1_joint",
+"wrist_2_joint",
+"wrist_3_joint",
+]
+
+STEP = 0.05  # radians (~3 deg)
+
+class Teleop(Node):
+    def __init__(self):
+        super().__init__('xyz_step')
+        self.pub = self.create_publisher(
+            JointTrajectory,
+            '/scaled_joint_trajectory_controller/joint_trajectory',
+            10)
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # self.base_frame = "base_link"
+        # self.ee_frame = "wrist_3_link"   
+
+
+        self.joints = None
+        self.create_subscription(JointState, '/joint_states', self.js_cb, 10)
+
+        # self.listener = keyboard.Listener(on_press=self.on_press)
+        # self.listener.start()
+
+        # print("\nControls:")
+        # print("1/2 → joint1")
+        # print("3/4 → joint2")
+        # print("5/6 → joint3")
+        # print("7/8 → joint4")
+        # print("9/0 → joint5")
+        # print("-/= → joint6\n")
+
+    def js_cb(self, msg):
+        name_to_pos = dict(zip(msg.name, msg.position))
+        self.joints = [name_to_pos[j] for j in JOINT_NAMES]
+        # return self.joints
+
+    def send(self):
+        traj = JointTrajectory()
+        traj.joint_names = JOINT_NAMES
+
+        pt = JointTrajectoryPoint()
+        pt.positions = self.joints
+        pt.time_from_start.sec = 1
+        traj.points = [pt]
+
+        self.pub.publish(traj)
+
+
+
+
+
 
 def main():
+
+    
+
     clients = dict()
     clients["keyboard"] = KeyboardDevice()
     clients["keyboard"].start()
 
-    scene, entities = build_scene()
+    scene, entities= build_scene()
     run_sim(scene, entities, clients)
 
 

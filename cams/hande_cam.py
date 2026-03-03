@@ -193,9 +193,9 @@ def run_sim(scene, entities, clients, cam,cam2,cam3):
             elif key == keyboard.Key.down:
                 target_pos[0] += dpos
             elif key == keyboard.Key.right:
-                target_pos[1] += dpos
-            elif key == keyboard.Key.left:
                 target_pos[1] -= dpos
+            elif key == keyboard.Key.left:
+                target_pos[1] += dpos
             elif key == keyboard.KeyCode.from_char("n"):
                 target_pos[2] += dpos
             elif key == keyboard.KeyCode.from_char("m"):
@@ -256,7 +256,7 @@ def add_camera(scene, cam, cam2, cam3, entities):
 
     T[:3, 3] = np.array([0.0, 0.0, 0.0])
 
-    Z[:3, 3] = np.array([0.1, 0.0, 0.1])
+    Z[:3, 3] = np.array([0.0, 0.0, 0.15])
 
     cam.attach(entities["robot"].get_link("wrist_3_link"), Z)
     cam2.attach(entities["cube"],T)

@@ -1,0 +1,408 @@
+import csv
+import numpy as np
+import genesis as gs
+from datetime import datetime
+from typing import List, Optional, Tuple
+
+from utils.rerun_utils import RerunLogger
+import rclpy
+from rclpy.node import Node
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from sensor_msgs.msg import JointState
+from pynput import keyboard
+import math
+from tf2_ros import Buffer, TransformListener
+from rclpy.time import Time
+from nodes import Teleop
+from test_gripper import RobotiqHandE_URCapSocket
+
+
+
+UR10E_JOINTS = (
+    "shoulder_pan_joint",
+    "shoulder_lift_joint",
+    "elbow_joint",
+    "wrist_1_joint",
+    "wrist_2_joint",
+    "wrist_3_joint",
+    # "hande_left_finger_joint", 
+    # "hande_right_finger_joint"
+)
+
+
+rclpy.init()
+node = Teleop()
+
+ROBOT_IP = "192.168.56.101"  # <-- change this
+g = RobotiqHandE_URCapSocket(ROBOT_IP)
+
+g.connect()
+
+def get_driver_dof_indices(robot):
+    idx = []
+    for j in robot.joints:
+        # if j.name in ["left_driver_joint", "right_driver_joint"]:
+        if j.name in ["hande_left_finger_joint", "hande_right_finger_joint"]:
+            idx.append(int(j.dofs_idx_local[0]))
+    if not idx:
+        raise RuntimeError("Driver joints not found")
+    return idx
+
+def set_gripper(robot, open_frac: float):
+    open_frac = float(np.clip(open_frac, 0.0, 1.0))
+    idxs = get_driver_dof_indices(robot)
+
+
+    # per-env command matrix
+    n_envs = robot.scene.n_envs
+    q = np.array([open_frac] * len(idxs), dtype=np.float32)  # (n_dofs,)
+    q = np.tile(q[None, :], (n_envs, 1))  # (n_envs, n_dofs)
+    robot.control_dofs_position(q, dofs_idx_local=idxs)
+
+
+# -------- IK path builder over Cartesian waypoints --------
+def cartesian_waypoint_path(robot, ee, waypoints_xyz: List[np.ndarray],
+                            quat_wxyz: Optional[np.ndarray],
+                            steps_per_segment: int = 60) -> np.ndarray:
+    """
+    Sequential IK to follow Cartesian points with (optional) fixed orientation.
+    Returns an (n_envs, N, ndof) numpy array of joint configs.
+    """
+    n_envs = robot.scene.n_envs
+    ndof = robot.get_dofs_position().shape[1]
+
+    path = []
+    q_curr = robot.get_dofs_position().cpu().numpy()  # (n_envs, ndof)
+
+    for i in range(len(waypoints_xyz) - 1):
+        a = waypoints_xyz[i]
+        b = waypoints_xyz[i + 1]
+
+        for s in range(steps_per_segment):
+            u = (s + 1) / steps_per_segment
+            p = (1 - u) * a + u * b
+
+            # broadcast target pos & orientation across all envs
+            pos = np.tile(p[None, :], (n_envs, 1))
+            if quat_wxyz is not None:
+                quat = np.tile(quat_wxyz[None, :], (n_envs, 1))
+                qpos = robot.inverse_kinematics(link=ee, pos=pos, quat=quat)
+            else:
+                qpos = robot.inverse_kinematics(link=ee, pos=pos)
+
+            if qpos is None:
+                qnext = q_curr
+            else:
+                qnext = qpos.cpu().numpy()
+                q_curr = qnext
+
+            path.append(qnext)
+
+    return np.asarray(path, dtype=np.float32)  # shape: (N, n_envs, ndof)
+
+
+
+def make_pick_place_waypoints(ee_home_pose: np.ndarray, 
+                              cube_pos: np.ndarray,
+                              place_xyz: np.ndarray,
+                              hover_in: float,
+                              hover_out: float,
+                              margin_z: float) -> Tuple[List[np.ndarray], List[int]]:
+    """
+    Build Cartesian waypoints (EE positions) for:
+      1) pregrasp (hover above cube, open)
+      2) descend to just above cube top (open)
+      3) dwell at same pose to close gripper (open->close happens here)
+      4) postgrasp (lift up, closed)
+      5) preplace (move above place target, closed)
+      6) descend to just above place target (closed)
+      7) postplace (lift up, open after release)
+      8) (home handled separately)
+
+    Returns:
+      waypoints_xyz: list of np.array([x,y,z]) in sequence
+      event_markers: [close_at_step, open_at_step] as segment indices (for timing)
+    """
+    # infer top surface z from cube center + half size known in prepare_env (0.07 → half 0.035)
+    cube_top_z  = cube_pos[2]            # you already place cube center at z = half size
+    place_top_z = place_xyz[2]           # you set this to 0.035 in get_path()
+
+    pregrasp   = np.array([cube_pos[0],  cube_pos[1],  cube_top_z  + hover_in],  np.float32)
+    grasp      = np.array([cube_pos[0],  cube_pos[1],  cube_top_z  + margin_z], np.float32)
+
+    postgrasp  = np.array([cube_pos[0],  cube_pos[1],  cube_top_z  + hover_out], np.float32)
+
+    preplace   = np.array([place_xyz[0], place_xyz[1], place_top_z + hover_in], np.float32)
+    place      = np.array([place_xyz[0], place_xyz[1], place_top_z + margin_z], np.float32)
+
+    postplace  = np.array([place_xyz[0], place_xyz[1], place_top_z + hover_out], np.float32)
+
+    # EE pose you want to consider as "home" (position only; keeps same quat you pass to IK)
+    rest_at_home = np.array(ee_home_pose, np.float32)  # e.g. [x, y, z]
+
+    waypoints_xyz: List[np.ndarray] = [
+        pregrasp,   # seg 0: pregrasp -> grasp
+        grasp,      # seg 1: grasp -> postgrasp
+        postgrasp,  # seg 2: postgrasp -> preplace
+        preplace,   # seg 3: preplace -> place
+        place,      # seg 4: place -> postplace
+        postplace,
+        rest_at_home,  # NEW: adds the postplace -> home segment
+    ]
+
+    # We’ll handle dwell by inserting repeated points into the joint path (below),
+    # but we also want clean indices to trigger close/open while stationary:
+    # Segment indices (0-based) aligned with 'waypoints_xyz' above.
+    close_segment = 0   # after reaching 'grasp' and before lifting
+    open_segment  = 3   # after reaching 'place' (before postplace)
+
+    return waypoints_xyz, [close_segment, open_segment]
+
+
+def build_pick_place_joint_path(robot, ee,
+                                waypoints_xyz: List[np.ndarray],
+                                quat_wxyz: Optional[np.ndarray],
+                                steps_per_segment: int,
+                                dwell_steps: int) -> Tuple[np.ndarray, dict]:
+    """
+    IK path between waypoints. Adds a dwell AFTER reaching 'grasp' so we can close while stationary.
+    Returns:
+      path:   [T, ndof]
+      events: {'close': List[int], 'open': List[int]}
+    """
+    per_seg_paths: List[np.ndarray] = []
+    seg_start_step_idx: List[int] = []
+    tcursor = 0
+
+    for si in range(len(waypoints_xyz) - 1):
+        seg_start_step_idx.append(tcursor)
+        a, b = waypoints_xyz[si], waypoints_xyz[si + 1]
+        seg_path = cartesian_waypoint_path(
+            robot, ee, [a, b],
+            quat_wxyz=quat_wxyz,
+            steps_per_segment=steps_per_segment
+        )
+        per_seg_paths.append(seg_path)
+        tcursor += len(seg_path)
+
+    ndof = robot.get_dofs_position().shape[-1]
+    path = np.concatenate(per_seg_paths, axis=0) if per_seg_paths else np.empty((0, ndof), dtype=np.float32)
+
+    # Insert dwell right after finishing segment 0 (pregrasp->grasp)
+    grasp_seg_idx = 0
+    dwell_added = 0
+    insert_at = None
+    if per_seg_paths and dwell_steps > 0:
+        insert_at = seg_start_step_idx[grasp_seg_idx] + per_seg_paths[grasp_seg_idx].shape[0]
+        if 0 < insert_at <= path.shape[0]:
+            dwell_pose = path[insert_at - 1]
+            dwell_block = np.repeat(dwell_pose[None, :], dwell_steps, axis=0)
+            path = np.concatenate([path[:insert_at], dwell_block, path[insert_at:]], axis=0)
+            dwell_added = dwell_steps
+        else:
+            insert_at = None
+
+    # Helper: end idx of segment k in the (possibly extended) path
+    def end_of_segment(seg_idx: int) -> int:
+        end = 0
+        for k in range(seg_idx + 1):
+            end += per_seg_paths[k].shape[0]
+            if k == grasp_seg_idx:
+                end += dwell_added
+        return max(0, end - 1)
+
+    # Fire CLOSE **mid-dwell** so it's clearly after arrival & stationary
+    if insert_at is not None:
+        close_step = insert_at + max(0, dwell_steps // 2)
+    else:
+        close_step = end_of_segment(0)  # fallback
+
+    # Fire OPEN after finishing segment 3 (preplace->place)
+    open_step = end_of_segment(3)
+
+    events = {"close": int(close_step), "open": int(open_step)}
+    return path, events
+
+
+def load_csv_traj(path: str) -> np.ndarray:
+    rows: List[List[float]] = []
+    with open(path, "r", newline="") as f:
+        reader = csv.reader(f)
+        for r in reader:
+            if not r:
+                continue
+            vals = [float(x) for x in r[:6]]
+            rows.append(vals)
+    if not rows:
+        raise ValueError(f"Empty trajectory CSV: {path}")
+    return np.asarray(rows, dtype=np.float32)
+
+def find_motors_idx(robot, joint_names: Tuple[str, ...]) -> List[int]:
+    idx = []
+    for name in joint_names:
+        j = robot.get_joint(name)
+        if j is None:
+            raise RuntimeError(f"Joint not found: {name}")
+        idx.append(int(j.dofs_idx_local[0]))
+    return idx
+
+def prepare_env(cfg):
+    session = cfg.session or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    logger = RerunLogger(session, cfg.outdir)
+    gs.init(backend=gs.gpu)
+
+    scene = gs.Scene(
+        viewer_options=gs.options.ViewerOptions(
+            camera_pos=(-2.5, -5.5, 2.0), 
+            camera_lookat=(0.0, 0.0, 0.5), 
+            camera_fov=30, 
+            max_FPS=40,
+        ),
+        sim_options=gs.options.SimOptions(dt=cfg.dt),
+        show_viewer=(not cfg.headless),
+    )
+
+    plane = scene.add_entity(gs.morphs.Plane())
+    robot = scene.add_entity(gs.morphs.MJCF(file=cfg.robot_xml))
+    
+
+    cube_z = cfg.cube_size[2] / 2.0
+    cube_0 = scene.add_entity(gs.morphs.Box(
+        size=tuple(cfg.cube_size),
+        pos=(cfg.cube_pos[0], cfg.cube_pos[1], cube_z),
+        fixed=False, collision=True, visualization=True, contype=0xFFFF, conaffinity=0xFFFF
+    ))
+    cube_1 = scene.add_entity(gs.morphs.Box(
+        size=tuple(cfg.cube_size),
+        pos=(cfg.cube_pos[0] - 0.25, cfg.cube_pos[1] + 0.2, cube_z),
+        fixed=False, collision=True, visualization=True, contype=0xFFFF, conaffinity=0xFFFF
+    ))
+
+    motors_idx = find_motors_idx(robot, UR10E_JOINTS)
+    ee = robot.get_link('wrist_3_link')
+
+    cam = None
+    if cfg.add_camera:
+        cam = scene.add_camera(res=tuple(cfg.cam_res), pos=(0,0,0), lookat=(0,0,0), fov=50, GUI=False)
+        # offset
+        offset_T = np.eye(4, dtype=np.float32)
+        offset_T[:3, 3] = np.array(cfg.cam_offset_xyz, dtype=np.float32)
+        th = np.deg2rad(cfg.cam_tilt_deg)
+        R_x = np.array([[1,0,0],[0,np.cos(th),-np.sin(th)],[0,np.sin(th),np.cos(th)]], dtype=np.float32)
+        offset_T[:3, :3] = R_x
+        cam.attach(ee, offset_T)
+
+    scene.build(n_envs=cfg.n_envs, env_spacing=(1.5, 1.5))
+    robot.set_dofs_kp([2000, 2000, 2000, 500, 500, 500, 400 ,400])
+    robot.set_dofs_kv([200 , 200 , 200, 50, 50 ,50 ,70 ,70])
+    robot.set_dofs_force_range([-150 , -150 , -150 , -28 , -28 , -28 ,-90,-90] , [150 , 150 , 150 , 28 , 28 , 28 ,90 ,90])
+
+    home_qpose = np.array(cfg.home_qpose, dtype=np.float32)
+
+    # Add small random offsets per environment (e.g. ±0.05 rad on each joint)
+    noise_scale = getattr(cfg, "home_qpose_noise", 0.05)
+    home_qposes = np.tile(home_qpose[None, :], (cfg.n_envs, 1))
+    home_qposes += np.random.uniform(-noise_scale, noise_scale, home_qposes.shape).astype(np.float32)
+
+    robot.set_dofs_position(np.array(home_qposes, dtype=np.float32), motors_idx)
+    
+    # read end-effector pose
+    ee_pos = ee.get_pos().cpu().numpy()[0].astype(np.float32)   # (x, y, z)
+    # now save in cfg
+    cfg.home_ee_xyz = ee_pos
+    return scene, robot, ee, [cube_0, cube_1], motors_idx, logger, cam
+
+def get_path(cfg, robot, ee, cubes):
+    set_gripper(robot, open_frac=0.0)
+    all_path = []
+    all_close, all_open = [], []
+    step_offset = 0
+
+    ee_quat_wxyz = ee.get_quat().cpu().numpy()[0].astype(np.float32)
+
+    for i, cube in enumerate(cubes[:2]):  # two cubes
+        cube_pos  = cube.get_pos().cpu().numpy()[0].astype(np.float32)
+        place_xyz = np.array(cfg.place_xyz, dtype=np.float32)
+        # TODO: Move end pos to config
+        if i:
+            place_xyz[0] += 0.05  # offset y for second cube
+        waypoints_xyz, seg_events = make_pick_place_waypoints(
+            ee_home_pose=cfg.home_ee_xyz, cube_pos=cube_pos, place_xyz=place_xyz,
+            hover_in=cfg.hover_in, hover_out=cfg.hover_out, margin_z=cfg.margin_z
+        )
+        # Your existing converter: segments -> joint path (+ dwell inside) + step events
+        path_i, events_i = build_pick_place_joint_path(
+            robot, ee, waypoints_xyz=waypoints_xyz, quat_wxyz=ee_quat_wxyz,
+            steps_per_segment=cfg.steps_per_segment, dwell_steps=cfg.dwell_steps
+        )
+
+        if path_i.size > 0:
+            all_path.append(path_i)
+            # shift local events by accumulated steps so far
+            all_close.append(step_offset + int(events_i["close"]))
+            all_open.append(step_offset + int(events_i["open"]))
+            step_offset += path_i.shape[0]
+
+    # Optionally add your existing “return to home” tail here (once), then:
+    path = np.concatenate(all_path, axis=0) if all_path else np.zeros((0, len(cfg.home_qpose)), np.float32)
+    events = {"close": all_close, "open": all_open}
+    return path, events
+
+
+def manipulate_robot(robot, path, step, motors_dof_idx, events):
+    n_envs = robot.scene.n_envs
+
+    # Safe initialization
+    q_cmd = None
+    last_cmd = getattr(manipulate_robot, "_last_cmd", np.zeros((n_envs, len(motors_dof_idx)), dtype=np.float32))
+
+    try:
+        # Each step’s path: (n_envs, n_dofs)
+        q_cmd = path[step]  # (n_envs, n_dofs)
+        
+        robot.control_dofs_position(
+            q_cmd[:, motors_dof_idx],  # select joint subset for all envs
+            dofs_idx_local=motors_dof_idx
+        )
+        last_cmd = q_cmd
+
+        angles = q_cmd[0,:6]
+        node.joints = angles.tolist()
+        node.send()
+
+    except Exception as e:
+        print(f"[WARN] control failed at step {step}: {e}")
+        # fallback to last known command
+        robot.control_dofs_position(
+            last_cmd[:, motors_dof_idx],
+            dofs_idx_local=motors_dof_idx
+        )
+
+    # persist last_cmd across calls
+    manipulate_robot._last_cmd = last_cmd
+
+    # --- gripper events BEFORE stepping ---
+    gripper_status = None
+    if step in events.get("open", []):
+        gripper_status = 0.0
+        g.open()
+        set_gripper(robot, open_frac=gripper_status)
+    elif step in events.get("close", []):
+        gripper_status = 1.0
+        g.close_grip()
+        set_gripper(robot, open_frac=gripper_status)
+
+    return q_cmd, gripper_status
+
+
+def cam_follow_arm_and_log(cam_every, cam, logger, idx):
+    if cam is not None:
+        cam.move_to_attach()
+        if cam_every and (idx % cam_every == 0):  # ★ use i for stable cadence
+            rgb, _, _, _ = cam.render()
+            rgb = np.asarray(rgb)
+            if rgb.dtype != np.uint8:
+                rgb = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
+            if rgb.shape[-1] == 4:
+                rgb = rgb[..., :3]
+            logger.log_image(rgb)
